@@ -5,8 +5,9 @@ import {
   Plane, Users, Plus, Search, X, ChevronRight, ChevronLeft,
   AlertCircle, Compass, Bell, CheckCircle, CheckSquare, Square,
   Lock, LogOut, Trash2, MapPin, Calendar, MessageCircle, Send,
-  ArrowRight, Shield, Eye, EyeOff
+  ArrowRight, Shield, Eye, EyeOff, Sun, Moon
 } from 'lucide-react';
+
 import './App.css';
 
 const API = 'http://localhost:5000';
@@ -379,8 +380,11 @@ const TripDetailModal = ({ trip, user, onClose, onJoin, onLeave, onDelete, onRef
   };
 
   const spots = trip.maxPeople - trip.friends.length;
+  const tripDate = new Date(trip.date);
+  const tooLateToDelete = (tripDate - new Date()) / (1000 * 60 * 60) < 24;
 
   return (
+
     <div className="modal-overlay" onClick={onClose}>
       <motion.div
         initial={{ opacity: 0, y: 60 }}
@@ -444,7 +448,11 @@ const TripDetailModal = ({ trip, user, onClose, onJoin, onLeave, onDelete, onRef
                   ) : isMember ? (
                     <>
                       {isOrganizer ? (
-                        confirmDelete ? (
+                        tooLateToDelete ? (
+                          <div className="status-banner info">
+                            <Lock size={14} /> Deletion locked (trip starts in &lt; 24h)
+                          </div>
+                        ) : confirmDelete ? (
                           <div className="confirm-box">
                             <p>Delete this trip permanently?</p>
                             <div className="confirm-btns">
@@ -456,6 +464,7 @@ const TripDetailModal = ({ trip, user, onClose, onJoin, onLeave, onDelete, onRef
                           <button className="btn btn-danger btn-full" onClick={() => setConfirmDelete(true)}><Trash2 size={16} /> Delete Trip</button>
                         )
                       ) : (
+
                         confirmLeave ? (
                           <div className="confirm-box">
                             <p>Are you sure you want to leave this trip?</p>
@@ -554,9 +563,10 @@ const NotifPanel = ({ notes, onClose, onRead }) => (
     initial={{ opacity: 0, y: 10, scale: 0.95 }}
     animate={{ opacity: 1, y: 0, scale: 1 }}
     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-    className="notif-panel glass"
+    className="notif-panel glass-panel"
     onClick={e => e.stopPropagation()}
   >
+
     <div className="notif-header">
       <span>Notifications</span>
       {notes.some(n => !n.read) && <button className="link-btn" onClick={onRead}>Mark all read</button>}
@@ -598,6 +608,16 @@ export default function App() {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+
+  // Apply theme to body
+  useEffect(() => {
+    document.documentElement.className = theme;
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark');
+
   const [authModal, setAuthModal] = useState(null);
   const [createModal, setCreateModal] = useState(false);
   const [detailTrip, setDetailTrip] = useState(null);
@@ -719,8 +739,13 @@ export default function App() {
         </div>
 
         <div className="nav-right">
+          <button className="nav-icon-btn" onClick={toggleTheme} title="Toggle Theme" style={{ background: 'transparent', border: 'none', color: 'var(--text)', display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px' }}>
+            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
+          
           {user && (
-            <div className="notif-wrap" onClick={e => { e.stopPropagation(); setShowNotes(!showNotes); }}>
+            <div className="notif-wrap"
+ onClick={e => { e.stopPropagation(); setShowNotes(!showNotes); }}>
               <Bell size={22} className={unread > 0 ? 'bell-active' : 'bell'} />
               {unread > 0 && <span className="badge">{unread}</span>}
               <AnimatePresence>

@@ -1,7 +1,8 @@
 const Trip = require('../models/Trip');
 const Notification = require('../models/Notification');
 
-const CONFLICT_MSG = 'User is already part of another trip during this time period.';
+const CONFLICT_MSG = "You're already heading out on another adventure during these dates! 🗺️";
+
 
 const hasDateConflict = async (userName, startDate, endDate, excludeTripId = null) => {
   const startStr = startDate;
@@ -85,8 +86,20 @@ exports.deleteTrip = async (req, res) => {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
     if (trip.organizer !== req.user.name) return res.status(403).json({ error: 'Only organizer can delete' });
+    
+    // Check if trip starts in less than 24 hours
+    const tripStart = new Date(trip.date);
+    const now = new Date();
+    const diffHours = (tripStart - now) / (1000 * 60 * 60);
+    
+    if (diffHours < 24) {
+      return res.status(400).json({ 
+        error: "Cannot cancel trip within 24 hours of departure. It's time to pack! 🎒" 
+      });
+    }
 
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
     const membersToNotify = trip.friends.filter(f => f !== req.user.name);
 
     if (membersToNotify.length > 0) {
