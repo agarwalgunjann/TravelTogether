@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
+import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
 import {
   Plane, Users, Plus, Search, X, ChevronRight, ChevronLeft,
+
   AlertCircle, Compass, Bell, CheckCircle, CheckSquare, Square,
   Lock, LogOut, Trash2, MapPin, Calendar, MessageCircle, Send,
   ArrowRight, Shield, Eye, EyeOff, Sun, Moon
@@ -15,7 +17,9 @@ const token = () => localStorage.getItem('token');
 const authHeader = () => ({ Authorization: `Bearer ${token()}` });
 
 // ─── Toast Component ──────────────────────────────────────────────────────
+
 const Toast = ({ toast, onClose }) => {
+
   useEffect(() => {
     const t = setTimeout(onClose, 3500);
     return () => clearTimeout(t);
@@ -45,25 +49,62 @@ const Field = ({ label, error, children }) => (
 );
 
 // ─── Auth Modal ───────────────────────────────────────────────────────────
-const AuthModal = ({ mode: initialMode, onClose, onSuccess }) => {
+const AuthModal = ({ mode: initialMode, initialToken, onClose, onSuccess }) => {
   const [mode, setMode] = useState(initialMode);
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' });
   const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
+  const [resetToken, setResetToken] = useState(initialToken || null);
+
 
   const validate = () => {
     const e = {};
     if (mode === 'signup' && (!form.name || form.name.trim().length < 2)) e.name = 'At least 2 characters';
-    if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Valid email required';
-    if (!form.password || form.password.length < 6) e.password = 'At least 6 characters';
+    if ((mode === 'signup' || mode === 'login') && (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))) e.email = 'Valid email required';
+    if ((mode === 'signup' || mode === 'login') && (!form.password || form.password.length < 6)) e.password = 'At least 6 characters';
     return e;
   };
 
   const submit = async (e) => {
     e.preventDefault();
     setApiError('');
+    setSuccessMsg('');
+    
+    if (mode === 'forgot') {
+      if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) { setErrors({ email: 'Valid email required' }); return; }
+      setLoading(true);
+      try {
+        const res = await axios.post(`${API}/api/auth/forgot-password`, { email: form.email });
+        setSuccessMsg(`An email has been sent to ${form.email} with instructions to reset your password.`);
+        // Note: intentionally keeping modal open so user can read message
+      } catch (err) {
+        setApiError(err.response?.data?.error || 'Failed to process request');
+      } finally { setLoading(false); }
+      return;
+    }
+
+    if (mode === 'reset') {
+      if (!form.password || form.password.length < 6) { setErrors({ password: 'At least 6 characters' }); return; }
+      if (form.password !== form.confirmPassword) { setErrors({ confirmPassword: 'Passwords do not match' }); return; }
+      setLoading(true);
+      try {
+        await axios.post(`${API}/api/auth/reset-password`, { token: resetToken, newPassword: form.password });
+        setSuccessMsg('Password reset successfully! You can now log in.');
+        setTimeout(() => {
+          setMode('login');
+          setForm({ ...form, password: '', confirmPassword: '' });
+          setResetToken(null);
+          setSuccessMsg('');
+        }, 3000);
+      } catch (err) {
+        setApiError(err.response?.data?.error || 'Reset failed');
+      } finally { setLoading(false); }
+      return;
+    }
+
     const errs = validate();
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setLoading(true);
@@ -81,74 +122,151 @@ const AuthModal = ({ mode: initialMode, onClose, onSuccess }) => {
     }
   };
 
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.92 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.92 }}
-        className="modal auth-modal"
-        onClick={e => e.stopPropagation()}
-      >
-        <button className="modal-close" onClick={onClose}><X size={22} /></button>
-        <div className="auth-header">
-          <div className="auth-icon"><Plane size={28} /></div>
-          <h2>{mode === 'login' ? 'Welcome back' : 'Join TravelConnect'}</h2>
-          <p className="auth-sub">{mode === 'login' ? 'Sign in to your account' : 'Create your explorer profile'}</p>
-        </div>
+    const googleLogin = useGoogleLogin({
+      onSuccess: async (res) => {
+        setLoading(true);
+        try {
+          const { data } = await axios.post(`${API}/api/auth/google`, { token: res.access_token });
+          localStorage.setItem('token', data.token);
+          localStorage.setItem('user', JSON.stringify(data.user));
+          onSuccess(data.user);
+          onClose();
+        } catch (err) {
+          setApiError(err.response?.data?.error || 'Google login failed');
+        } finally {
+          setLoading(false);
+        }
+      },
+      onError: () => setApiError('Google Login failed, please try again.')
+    });
 
-        {apiError && (
-          <div className="alert-error">
-            <AlertCircle size={16} /> {apiError}
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.92 }}
+          className="modal auth-modal"
+          onClick={e => e.stopPropagation()}
+        >
+          <button className="modal-close" onClick={onClose}><X size={22} /></button>
+          <div className="auth-header">
+            <div className="auth-icon"><Plane size={28} /></div>
+            <h2>
+              {mode === 'login' ? 'Welcome back' : 
+               mode === 'signup' ? 'Join TravelConnect' : 
+               mode === 'forgot' ? 'Reset Password' : 
+               'Set New Password'}
+            </h2>
+            <p className="auth-sub">
+              {mode === 'login' ? 'Sign in to your account' : 
+               mode === 'signup' ? 'Create your explorer profile' : 
+               mode === 'forgot' ? 'Enter your email to receive a reset link' : 
+               'Enter your new strong password'}
+            </p>
           </div>
-        )}
 
-        <form onSubmit={submit} noValidate>
-          {mode === 'signup' && (
-            <Field label="Full Name" error={errors.name}>
-              <input
-                type="text"
-                placeholder="Your name"
-                value={form.name}
-                onChange={e => { setForm({ ...form, name: e.target.value }); setErrors({ ...errors, name: '' }); }}
-                className={errors.name ? 'inp inp-error' : 'inp'}
-              />
-            </Field>
-          )}
-          <Field label="Email" error={errors.email}>
-            <input
-              type="email"
-              placeholder="you@email.com"
-              value={form.email}
-              onChange={e => { setForm({ ...form, email: e.target.value }); setErrors({ ...errors, email: '' }); }}
-              className={errors.email ? 'inp inp-error' : 'inp'}
-            />
-          </Field>
-          <Field label="Password" error={errors.password}>
-            <div className="inp-suffix">
-              <input
-                type={showPass ? 'text' : 'password'}
-                placeholder="Min. 6 characters"
-                value={form.password}
-                onChange={e => { setForm({ ...form, password: e.target.value }); setErrors({ ...errors, password: '' }); }}
-                className={errors.password ? 'inp inp-error' : 'inp'}
-              />
-              <button type="button" className="eye-btn" onClick={() => setShowPass(!showPass)}>
-                {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
+          {apiError && (
+            <div className="alert-error">
+              <AlertCircle size={16} /> {apiError}
             </div>
-          </Field>
+          )}
 
-          <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-            {loading ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'}
-            {!loading && <ArrowRight size={18} />}
-          </button>
-        </form>
+          {successMsg && (
+            <div className="alert-success" style={{ padding: '0.75rem', borderRadius: '8px', backgroundColor: 'rgba(52, 168, 83, 0.15)', color: '#34A853', border: '1px solid rgba(52, 168, 83, 0.3)', display: 'flex', gap: '8px', alignItems: 'flex-start', margin: '0 1.5rem 1rem', fontSize: '0.85rem' }}>
+              <CheckCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
+          {(mode === 'login' || mode === 'signup') && (
+            <>
+              <button type="button" className="btn btn-google btn-full" onClick={() => googleLogin()} disabled={loading}>
+                <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"></path><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"></path><path fill="#FBBC05" d="M3.964 10.711a5.41 5.41 0 0 1 0-3.422V4.957H.957a8.996 8.996 0 0 0 0 8.086l3.007-2.332z"></path><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.443 2.057.957 4.957L3.964 7.29c.708-2.127 2.692-3.71 5.036-3.71z"></path></svg>
+                {loading ? 'Authenticating...' : 'Continue with Google'}
+              </button>
+              <div className="auth-divider">OR</div>
+            </>
+          )}
+
+          <form onSubmit={submit} noValidate>
+            {mode === 'signup' && (
+              <Field label="Full Name" error={errors.name}>
+                <input
+                  type="text"
+                  placeholder="Your name"
+                  value={form.name}
+                  onChange={e => { setForm({ ...form, name: e.target.value }); setErrors({ ...errors, name: '' }); }}
+                  className={errors.name ? 'inp inp-error' : 'inp'}
+                />
+              </Field>
+            )}
+            
+            {(mode === 'signup' || mode === 'login' || mode === 'forgot') && (
+              <Field label="Email" error={errors.email}>
+                <input
+                  type="email"
+                  placeholder="you@email.com"
+                  value={form.email}
+                  onChange={e => { setForm({ ...form, email: e.target.value }); setErrors({ ...errors, email: '' }); }}
+                  className={errors.email ? 'inp inp-error' : 'inp'}
+                />
+              </Field>
+            )}
+
+            {(mode === 'signup' || mode === 'login' || mode === 'reset') && (
+              <Field label={mode === 'reset' ? "New Password" : "Password"} error={errors.password}>
+                <div className="inp-suffix">
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    placeholder="Min. 6 characters"
+                    value={form.password}
+                    onChange={e => { setForm({ ...form, password: e.target.value }); setErrors({ ...errors, password: '' }); }}
+                    className={errors.password ? 'inp inp-error' : 'inp'}
+                  />
+                  <button type="button" className="eye-btn" onClick={() => setShowPass(!showPass)}>
+                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {mode === 'login' && (
+                  <div style={{ textAlign: 'right', marginTop: '0.4rem' }}>
+                    <button type="button" className="link-btn" style={{ fontSize: '0.8rem', fontWeight: 500 }} onClick={() => { setMode('forgot'); setErrors({}); setApiError(''); }}>
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
+              </Field>
+            )}
+
+            {mode === 'reset' && (
+              <Field label="Confirm Password" error={errors.confirmPassword}>
+                <div className="inp-suffix">
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    placeholder="Confirm new password"
+                    value={form.confirmPassword}
+                    onChange={e => { setForm({ ...form, confirmPassword: e.target.value }); setErrors({ ...errors, confirmPassword: '' }); }}
+                    className={errors.confirmPassword ? 'inp inp-error' : 'inp'}
+                  />
+                </div>
+              </Field>
+            )}
+
+            <button type="submit" className="btn btn-primary btn-full" disabled={loading} style={{ marginTop: '0.5rem' }}>
+              {loading ? 'Please wait…' : 
+               mode === 'login' ? 'Sign In' : 
+               mode === 'signup' ? 'Create Account' : 
+               mode === 'forgot' ? 'Send Link' : 'Reset Password'}
+              {!loading && <ArrowRight size={18} />}
+            </button>
+          </form>
 
         <p className="auth-switch">
-          {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}
+          {mode === 'login' ? "Don't have an account?" : 
+           mode === 'signup' ? 'Already have an account?' : 
+           'Remember your password?'}
           {' '}
-          <button type="button" className="link-btn" onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setErrors({}); setApiError(''); }}>
+          <button type="button" className="link-btn" onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setErrors({}); setApiError(''); setSuccessMsg(''); }}>
             {mode === 'login' ? 'Sign Up' : 'Sign In'}
           </button>
         </p>
@@ -609,6 +727,16 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+  const [authModal, setAuthModal] = useState(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rToken = params.get('resetToken');
+    if (rToken) {
+      setAuthModal({ mode: 'reset', token: rToken });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   // Apply theme to body
   useEffect(() => {
@@ -618,10 +746,10 @@ export default function App() {
 
   const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark');
 
-  const [authModal, setAuthModal] = useState(null);
   const [createModal, setCreateModal] = useState(false);
   const [detailTrip, setDetailTrip] = useState(null);
   const [toast, setToast] = useState(null);
+
   const [notes, setNotes] = useState([]);
   const [showNotes, setShowNotes] = useState(false);
 
@@ -874,7 +1002,8 @@ export default function App() {
         {authModal && (
           <AuthModal
             key="auth"
-            mode={authModal}
+            mode={typeof authModal === 'object' ? authModal.mode : authModal}
+            initialToken={typeof authModal === 'object' ? authModal.token : null}
             onClose={() => setAuthModal(null)}
             onSuccess={handleLogin}
           />

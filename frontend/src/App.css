@@ -165,6 +165,23 @@ a { color: inherit; }
 .btn-lg { padding: 0.85rem 2rem; font-size: 1rem; }
 .btn-sm { padding: 0.4rem 1rem; font-size: 0.82rem; }
 
+.btn-google {
+  background: #ffffff; color: #1f2937;
+  border: 1.5px solid #e5e7eb;
+  font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.75rem;
+}
+.light .btn-google { border-color: #cbd5e1; }
+.btn-google:hover { background: #f9fafb; border-color: #d1d5db; box-shadow: var(--shadow-sm); }
+.btn-google svg { flex-shrink: 0; }
+
+.auth-divider {
+  display: flex; align-items: center; gap: 1rem;
+  color: var(--text-faint); font-size: 0.72rem; font-weight: 700;
+  margin: 1.5rem 0; text-transform: uppercase; letter-spacing: 1px;
+}
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--glass-border); }
+
+
 .link-btn {
   background: none; border: none; color: var(--primary-light);
   font-weight: 600; cursor: pointer; font-size: inherit;

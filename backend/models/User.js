@@ -3,7 +3,10 @@ const mongoose = require('mongoose');
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
+  password: { type: String, required: false },
+  googleId: { type: String, required: false },
+  resetPasswordToken: String,
+  resetPasswordExpires: Date,
   joinedAt: { type: Date, default: Date.now }
 }, {
   toJSON: { virtuals: true },
